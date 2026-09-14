@@ -9,11 +9,12 @@ from django.utils.translation import activate, get_language
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
 
 from core.models import AuditLog
 from .models import User
 from .permissions import IsAdminUser
-from .serializers import LoginSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, RegisterSerializer, UserSerializer
+from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, RegisterSerializer, UserProfileSerializer, UserSerializer
 
 
 class UserListView(generics.ListCreateAPIView):
@@ -21,9 +22,50 @@ class UserListView(generics.ListCreateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminUser]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action='create',
+            model_name='User',
+            record_id=user.id,
+            details=f"Utilisateur créé: {user.display_name}",
+        )
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminUser]
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action='update',
+            model_name='User',
+            record_id=user.id,
+            details=f"Utilisateur mis à jour: {user.display_name}",
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        return Response(
+            {'detail': 'La suppression physique d’un utilisateur est interdite. Utilisez la désactivation.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
 
 class UserMeView(generics.RetrieveUpdateAPIView):
-    serializer_class = UserSerializer
+    serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
@@ -54,6 +96,7 @@ class UserMeView(generics.RetrieveUpdateAPIView):
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(request=LoginSerializer, responses={200: UserSerializer})
     def post(self, request, *args, **kwargs):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -76,7 +119,7 @@ class LoginView(APIView):
         if user.locked_until and user.locked_until > timezone.now():
             return Response({'success': False, 'message': 'Compte temporairement bloqué. Réessayez plus tard.'}, status=status.HTTP_403_FORBIDDEN)
 
-        if user.pin_code != pin:
+        if not user.check_pin(pin):
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             if user.failed_login_attempts >= 5:
                 user.locked_until = timezone.now() + timezone.timedelta(minutes=15)
@@ -123,6 +166,7 @@ class RegisterView(generics.CreateAPIView):
 class PinResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(request=PinResetRequestSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request, *args, **kwargs):
         serializer = PinResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -137,20 +181,23 @@ class PinResetRequestView(APIView):
 class PinResetConfirmView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(request=PinResetConfirmSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request, *args, **kwargs):
         serializer = PinResetConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(pk=serializer.validated_data['uid'], is_active=True).first()
         if not user or not default_token_generator.check_token(user, serializer.validated_data['token']):
             return Response({'success': False, 'message': 'Le lien de réinitialisation est invalide ou expiré.'}, status=status.HTTP_400_BAD_REQUEST)
-        user.pin_code = serializer.validated_data['pin']
+        user.set_pin(serializer.validated_data['pin'])
         user.failed_login_attempts = 0
         user.locked_until = None
         user.save(update_fields=['pin_code', 'failed_login_attempts', 'locked_until', 'updated_at'])
         return Response({'success': True, 'message': 'Code PIN réinitialisé. Vous pouvez vous connecter.'}, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(post=extend_schema(responses=LogoutResponseSerializer))
 class LogoutView(APIView):
+    serializer_class = LogoutResponseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):

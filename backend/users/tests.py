@@ -25,6 +25,8 @@ class AuthLoginTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['success'])
         self.assertEqual(response.data['user']['username'], 'vendeur1')
+        self.user.refresh_from_db()
+        self.assertNotEqual(self.user.pin_code, '1234')
 
     def test_login_with_phone_and_pin(self):
         response = self.client.post('/api/users/login/', {'identifier': '+224600000001', 'pin': '1234'}, format='json')
@@ -56,6 +58,20 @@ class AuthLoginTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['preferred_language'], 'en')
+
+    def test_user_cannot_elevate_own_role_from_profile(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            '/api/users/me/',
+            {'role': 'admin', 'is_active': False},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'sales')
+        self.assertTrue(self.user.is_active)
 
     def test_user_gets_locked_after_repeated_failed_pin_attempts(self):
         for attempt in range(4):
@@ -99,6 +115,31 @@ class AuthLoginTests(TestCase):
         self.client.force_authenticate(user=admin_user)
         response = self.client.get('/api/users/')
         self.assertEqual(response.status_code, 200)
+
+    def test_admin_can_fetch_and_update_user_detail_from_v1_api(self):
+        admin_user = User.objects.create_user(
+            username='admin_detail',
+            email='admin_detail@example.com',
+            password='secret123',
+            phone='+224600000007',
+            pin_code='4321',
+            role='admin',
+        )
+        self.client.force_authenticate(user=admin_user)
+
+        response = self.client.get(f'/api/v1/users/{self.user.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['username'], 'vendeur1')
+
+        patch_response = self.client.patch(
+            f'/api/v1/users/{self.user.id}/',
+            {'role': 'manager'},
+            format='json',
+        )
+        self.assertEqual(patch_response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'manager')
+        self.assertTrue(AuditLog.objects.filter(model_name='User', action='update', record_id=self.user.id).exists())
 
     def test_sales_user_cannot_create_products(self):
         sales_user = User.objects.create_user(
