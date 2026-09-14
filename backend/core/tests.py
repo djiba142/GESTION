@@ -32,6 +32,7 @@ class CoreApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(AppSetting.objects.count(), 1)
+        self.assertTrue(AuditLog.objects.filter(model_name='AppSetting', action='create').exists())
 
         list_response = self.client.get('/api/core/settings/')
         self.assertEqual(list_response.status_code, 200)
@@ -49,6 +50,7 @@ class CoreApiTests(TestCase):
         )
         self.assertEqual(update.status_code, 200)
         self.assertEqual(update.data['name'], 'NEXORA Guinée')
+        self.assertTrue(AuditLog.objects.filter(model_name='Company', action='update').exists())
 
     def test_list_audit_logs(self):
         AuditLog.objects.create(

@@ -29,11 +29,53 @@ class AppSettingListCreateView(generics.ListCreateAPIView):
     serializer_class = AppSettingSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminUser]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        app_setting = serializer.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action='create',
+            model_name='AppSetting',
+            record_id=app_setting.id,
+            details=f"Paramètre créé: {app_setting.key}",
+        )
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
 
 class AppSettingDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = AppSetting.objects.all()
     serializer_class = AppSettingSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminUser, SensitiveMutationPermission]
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        app_setting = serializer.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action='update',
+            model_name='AppSetting',
+            record_id=app_setting.id,
+            details=f"Paramètre mis à jour: {app_setting.key}",
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        app_setting_key = instance.key
+        self.perform_destroy(instance)
+        AuditLog.objects.create(
+            user=request.user,
+            action='delete',
+            model_name='AppSetting',
+            record_id=instance.id,
+            details=f"Paramètre supprimé: {app_setting_key}",
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CompanyView(generics.RetrieveUpdateAPIView):
@@ -43,6 +85,21 @@ class CompanyView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         company, _ = Company.objects.get_or_create(id=1, defaults={'name': 'NEXORA'})
         return company
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        company = serializer.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action='update',
+            model_name='Company',
+            record_id=company.id,
+            details=f"Profil société mis à jour: {company.name}",
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class DashboardSummaryView(generics.GenericAPIView):
