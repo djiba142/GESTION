@@ -173,15 +173,29 @@ class CoreApiTests(TestCase):
         )
 
         cash_response = self.client.get('/api/v1/cash/')
+        cashflow_response = self.client.get('/api/v1/cashflow/')
         transactions_response = self.client.get('/api/v1/cash/transactions/')
         financial_response = self.client.get('/api/v1/financial-summary/')
 
         self.assertEqual(cash_response.status_code, 200)
         self.assertEqual(cash_response.data['cash_in'], 300000.0)
+        self.assertEqual(cashflow_response.status_code, 200)
+        self.assertEqual(cashflow_response.data['cash_in'], 300000.0)
         self.assertEqual(transactions_response.status_code, 200)
         self.assertTrue(any(item['reference'] == 'PAY-CASH-001' for item in transactions_response.data))
         self.assertEqual(financial_response.status_code, 200)
         self.assertEqual(financial_response.data['outstanding_balance'], 0.0)
+
+    def test_versioned_core_endpoints_are_available_in_v1_root(self):
+        response = self.client.get('/api/v1/dashboard/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('total_products', response.data)
+
+        audit_response = self.client.get('/api/v1/audit/')
+        self.assertEqual(audit_response.status_code, 200)
+
+        settings_response = self.client.get('/api/v1/settings/')
+        self.assertEqual(settings_response.status_code, 200)
 
     def test_advanced_reporting_filters_by_date_and_customer(self):
         customer_recent = Customer.objects.create(full_name='Recent Client', phone='+224600000011')
