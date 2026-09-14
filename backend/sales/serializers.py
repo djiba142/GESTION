@@ -1,7 +1,10 @@
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers
 
 from products.models import Product
+from inventory.models import StockItem
+from core.models import AuditLog
 from .models import Invoice, Sale, SaleItem
 
 
@@ -22,10 +25,11 @@ class SaleSerializer(serializers.ModelSerializer):
     total_amount = serializers.SerializerMethodField()
     invoice_number = serializers.SerializerMethodField()
     invoice_qr_code = serializers.SerializerMethodField()
+    seller = serializers.PrimaryKeyRelatedField(queryset=get_user_model().objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Sale
-        fields = ['id', 'customer', 'sale_date', 'status', 'payment_method', 'total_amount', 'amount_paid', 'is_external', 'external_supplier', 'external_reference', 'notes', 'items', 'invoice_number', 'invoice_qr_code', 'created_at', 'updated_at']
+        fields = ['id', 'customer', 'seller', 'location', 'sale_date', 'status', 'payment_method', 'total_amount', 'amount_paid', 'is_external', 'external_supplier', 'external_reference', 'notes', 'items', 'invoice_number', 'invoice_qr_code', 'created_at', 'updated_at']
         read_only_fields = ['id', 'sale_date', 'created_at', 'updated_at', 'total_amount', 'invoice_number', 'invoice_qr_code']
 
     def get_total_amount(self, obj):
@@ -67,11 +71,26 @@ class SaleSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         requested_amount_paid = validated_data.get('amount_paid', 0) or 0
+
+        request = self.context.get('request')
+        if request and getattr(request, 'user', None) and validated_data.get('seller') is None:
+            validated_data['seller'] = request.user
+
         sale = Sale.objects.create(**validated_data)
 
         for item_data in items_data:
+            product = Product.objects.select_for_update().get(pk=item_data['product'].pk)
+            item_data['product'] = product
             item = SaleItem.objects.create(sale=sale, **item_data)
-            product = item.product
+            if sale.location_id:
+                stock_item = StockItem.objects.select_for_update().filter(
+                    product=product,
+                    location_id=sale.location_id,
+                ).first()
+                if stock_item is None or stock_item.quantity < item.quantity:
+                    raise serializers.ValidationError({'quantity': f'Le stock de {product.name} est insuffisant dans cet emplacement.'})
+                stock_item.quantity -= item.quantity
+                stock_item.save(update_fields=['quantity', 'updated_at'])
             if product.quantity < item.quantity:
                 raise serializers.ValidationError({'quantity': f'Le stock de {product.name} est insuffisant.'})
             product.quantity -= item.quantity
@@ -112,4 +131,13 @@ class SaleSerializer(serializers.ModelSerializer):
             ledger.total_credit = sale.total_amount
             ledger.total_paid = sale.amount_paid
             ledger.update_balance()
+
+        request = self.context.get('request')
+        AuditLog.objects.create(
+            user=getattr(request, 'user', None) if request else None,
+            action='sale',
+            model_name='Sale',
+            record_id=sale.id,
+            details=f'Vente créée: {sale.id}, total={sale.total_amount}',
+        )
         return sale

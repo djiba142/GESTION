@@ -1,8 +1,10 @@
+from django.conf import settings
 from django.db import models
 
 from customers.models import Customer
 from suppliers.models import Supplier
 from products.models import Product
+from inventory.models import InventoryLocation
 
 
 class Sale(models.Model):
@@ -21,6 +23,8 @@ class Sale(models.Model):
     ]
 
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='sales')
+    seller = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name='sales_created', null=True, blank=True)
+    location = models.ForeignKey(InventoryLocation, on_delete=models.PROTECT, related_name='sales', null=True, blank=True)
     sale_date = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     payment_method = models.CharField(max_length=30, choices=PAYMENT_CHOICES, default='cash')

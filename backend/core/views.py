@@ -8,13 +8,14 @@ from rest_framework.response import Response
 
 from customers.models import Customer
 from expenses.models import Expense
+from inventory.models import Carton
 from payments.models import Payment
 from products.models import Product
 from sales.models import Invoice, Sale, SaleItem
 from suppliers.models import Supplier
 from users.permissions import IsAdminUser, SensitiveMutationPermission, role_permission
-from .models import AppSetting, AuditLog
-from .serializers import AppSettingSerializer, AuditLogSerializer
+from .models import AppSetting, AuditLog, Company
+from .serializers import AppSettingSerializer, AuditLogSerializer, CompanySerializer, JsonResponseSerializer
 
 
 class AuditLogListView(generics.ListAPIView):
@@ -35,7 +36,17 @@ class AppSettingDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsAdminUser, SensitiveMutationPermission]
 
 
+class CompanyView(generics.RetrieveUpdateAPIView):
+    serializer_class = CompanySerializer
+    permission_classes = [permissions.IsAuthenticated, role_permission('core'), SensitiveMutationPermission]
+
+    def get_object(self):
+        company, _ = Company.objects.get_or_create(id=1, defaults={'name': 'NEXORA'})
+        return company
+
+
 class DashboardSummaryView(generics.GenericAPIView):
+    serializer_class = JsonResponseSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('core')]
 
     def get(self, request, *args, **kwargs):
@@ -59,12 +70,17 @@ class DashboardSummaryView(generics.GenericAPIView):
 
 
 class AdvancedReportingView(generics.GenericAPIView):
+    serializer_class = JsonResponseSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('core')]
 
     def get(self, request, *args, **kwargs):
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
+        start_date = request.query_params.get('start_date') or request.query_params.get('date_from')
+        end_date = request.query_params.get('end_date') or request.query_params.get('date_to')
         customer_id = request.query_params.get('customer')
+        product_id = request.query_params.get('product')
+        category_id = request.query_params.get('category')
+        location_id = request.query_params.get('location')
+        seller_id = request.query_params.get('seller')
 
         sales_queryset = Sale.objects.select_related('customer').all()
         if start_date:
@@ -83,6 +99,14 @@ class AdvancedReportingView(generics.GenericAPIView):
                 sales_queryset = sales_queryset.filter(sale_date__lte=end_boundary)
         if customer_id:
             sales_queryset = sales_queryset.filter(customer_id=customer_id)
+        if seller_id:
+            sales_queryset = sales_queryset.filter(seller_id=seller_id)
+        if location_id:
+            sales_queryset = sales_queryset.filter(location_id=location_id)
+        if product_id:
+            sales_queryset = sales_queryset.filter(items__product_id=product_id).distinct()
+        if category_id:
+            sales_queryset = sales_queryset.filter(items__product__category_id=category_id).distinct()
 
         total_sales = sales_queryset.aggregate(total=Sum('total_amount'))['total'] or 0
         total_received = Payment.objects.filter(sale__in=sales_queryset.values_list('id', flat=True)).aggregate(total=Sum('amount'))['total'] or 0
@@ -149,6 +173,7 @@ class AdvancedReportingView(generics.GenericAPIView):
 
 
 class CashflowSummaryView(generics.GenericAPIView):
+    serializer_class = JsonResponseSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('core')]
 
     def get(self, request, *args, **kwargs):
@@ -163,7 +188,52 @@ class CashflowSummaryView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class CashView(CashflowSummaryView):
+    pass
+
+
+class CashTransactionsView(generics.GenericAPIView):
+    serializer_class = JsonResponseSerializer
+    permission_classes = [permissions.IsAuthenticated, role_permission('core')]
+
+    def get(self, request, *args, **kwargs):
+        payments = [
+            {
+                'type': 'in',
+                'id': payment.id,
+                'reference': payment.reference,
+                'amount': float(payment.amount),
+                'date': payment.payment_date,
+                'description': f'Paiement {payment.reference or payment.id}',
+            }
+            for payment in Payment.objects.all()
+        ]
+        expenses = [
+            {
+                'type': 'out',
+                'id': expense.id,
+                'reference': expense.reference,
+                'amount': float(expense.amount),
+                'date': expense.expense_date,
+                'description': expense.title,
+            }
+            for expense in Expense.objects.all()
+        ]
+        transactions = sorted(payments + expenses, key=lambda item: item['date'], reverse=True)
+        return Response(transactions, status=status.HTTP_200_OK)
+
+
+class FinancialSummaryView(CashflowSummaryView):
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        total_sales = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
+        total_received = Payment.objects.aggregate(total=Sum('amount'))['total'] or 0
+        response.data['outstanding_balance'] = float(total_sales - total_received)
+        return response
+
+
 class GlobalSearchView(generics.GenericAPIView):
+    serializer_class = JsonResponseSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('core')]
 
     def get(self, request, *args, **kwargs):
@@ -176,6 +246,8 @@ class GlobalSearchView(generics.GenericAPIView):
                 'customers': [],
                 'suppliers': [],
                 'invoices': [],
+                'cartons': [],
+                'sales': [],
                 'payments': [],
             }, status=status.HTTP_200_OK)
 
@@ -204,13 +276,29 @@ class GlobalSearchView(generics.GenericAPIView):
             Payment.objects.filter(payment_filter).select_related('customer').values('id', 'reference', 'amount', 'payment_method', 'customer__full_name')[:10]
         )
 
+        carton_filter = Q(reference__icontains=query) | Q(qr_code__icontains=query) | Q(product__name__icontains=query)
+        cartons = list(
+            Carton.objects.filter(carton_filter).select_related('product', 'location').values(
+                'id', 'reference', 'qr_code', 'quantity', 'product__name', 'location__name',
+            )[:10]
+        )
+
+        sale_filter = Q(notes__icontains=query) | Q(external_reference__icontains=query) | Q(customer__full_name__icontains=query)
+        if query.isdigit():
+            sale_filter |= Q(id=int(query))
+        sales = list(
+            Sale.objects.filter(sale_filter).values('id', 'status', 'total_amount', 'amount_paid', 'customer__full_name')[:10]
+        )
+
         payload = {
             'query': query,
-            'total': len(products) + len(customers) + len(suppliers) + len(invoices) + len(payments),
+            'total': len(products) + len(customers) + len(suppliers) + len(invoices) + len(cartons) + len(sales) + len(payments),
             'products': products,
             'customers': customers,
             'suppliers': suppliers,
             'invoices': invoices,
+            'cartons': cartons,
+            'sales': sales,
             'payments': payments,
         }
         return Response(payload, status=status.HTTP_200_OK)

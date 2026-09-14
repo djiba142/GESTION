@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from customers.models import Customer
 from payments.models import Payment
-from products.models import Product
+from products.models import Category, Product
 from sales.models import Sale
 from users.models import User
 from .models import AppSetting, AuditLog
@@ -36,6 +36,19 @@ class CoreApiTests(TestCase):
         list_response = self.client.get('/api/core/settings/')
         self.assertEqual(list_response.status_code, 200)
         self.assertTrue(any(item['key'] == 'company_name' for item in list_response.data))
+
+    def test_company_endpoint_reads_and_updates_company_profile(self):
+        response = self.client.get('/api/v1/company/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['name'], 'NEXORA')
+
+        update = self.client.patch(
+            '/api/v1/company/',
+            {'name': 'NEXORA Guinée', 'currency': 'GNF'},
+            format='json',
+        )
+        self.assertEqual(update.status_code, 200)
+        self.assertEqual(update.data['name'], 'NEXORA Guinée')
 
     def test_list_audit_logs(self):
         AuditLog.objects.create(
@@ -142,6 +155,34 @@ class CoreApiTests(TestCase):
         self.assertEqual(response.data['cash_out'], 0.0)
         self.assertEqual(response.data['net_cash'], 300000.0)
 
+    def test_versioned_cash_endpoints_expose_summary_and_transactions(self):
+        customer = Customer.objects.create(full_name='Client caisse')
+        sale = Sale.objects.create(
+            customer=customer,
+            status='paid',
+            payment_method='cash',
+            total_amount=Decimal('300000.00'),
+            amount_paid=Decimal('300000.00'),
+        )
+        Payment.objects.create(
+            customer=customer,
+            sale=sale,
+            amount=Decimal('300000.00'),
+            payment_method='cash',
+            reference='PAY-CASH-001',
+        )
+
+        cash_response = self.client.get('/api/v1/cash/')
+        transactions_response = self.client.get('/api/v1/cash/transactions/')
+        financial_response = self.client.get('/api/v1/financial-summary/')
+
+        self.assertEqual(cash_response.status_code, 200)
+        self.assertEqual(cash_response.data['cash_in'], 300000.0)
+        self.assertEqual(transactions_response.status_code, 200)
+        self.assertTrue(any(item['reference'] == 'PAY-CASH-001' for item in transactions_response.data))
+        self.assertEqual(financial_response.status_code, 200)
+        self.assertEqual(financial_response.data['outstanding_balance'], 0.0)
+
     def test_advanced_reporting_filters_by_date_and_customer(self):
         customer_recent = Customer.objects.create(full_name='Recent Client', phone='+224600000011')
         customer_old = Customer.objects.create(full_name='Old Client', phone='+224600000012')
@@ -185,6 +226,63 @@ class CoreApiTests(TestCase):
         self.assertEqual(response.data['summary']['total_sales'], 60000.0)
         self.assertEqual(response.data['summary']['total_customers'], 1)
 
+    def test_report_routes_accept_product_and_category_filters(self):
+        category = Category.objects.create(name='Catégorie rapport')
+        customer = Customer.objects.create(full_name='Client rapport produit')
+        product = Product.objects.create(
+            sku='REPORT-PRODUCT-001',
+            name='Produit rapport filtre',
+            category=category,
+            selling_price=Decimal('12000.00'),
+            quantity=2,
+        )
+        sale = Sale.objects.create(
+            customer=customer,
+            status='paid',
+            payment_method='cash',
+            total_amount=Decimal('12000.00'),
+            amount_paid=Decimal('12000.00'),
+        )
+        sale.items.create(product=product, quantity=1, unit_price=Decimal('12000.00'))
+
+        response = self.client.get(
+            '/api/v1/reports/sales/',
+            {'product': product.id, 'category': category.id, 'date_from': '2026-01-01'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['summary']['total_sales'], 12000.0)
+
+    def test_report_routes_accept_seller_filter(self):
+        seller = User.objects.create_user(
+            username='seller_report',
+            password='secret123',
+            pin_code='4321',
+            role='sales',
+        )
+        customer = Customer.objects.create(full_name='Client vendeur')
+        product = Product.objects.create(
+            sku='REPORT-SELLER-001',
+            name='Produit vendeur',
+            selling_price=Decimal('30000.00'),
+            quantity=5,
+        )
+
+        sale = Sale.objects.create(
+            customer=customer,
+            seller=seller,
+            status='paid',
+            payment_method='cash',
+            total_amount=Decimal('30000.00'),
+            amount_paid=Decimal('30000.00'),
+        )
+        sale.items.create(product=product, quantity=1, unit_price=Decimal('30000.00'))
+
+        response = self.client.get('/api/v1/reports/sales/', {'seller': seller.id})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['summary']['total_sales'], 30000.0)
+
     def test_global_search_returns_cross_module_results(self):
         customer = Customer.objects.create(full_name='Aminata Diop', phone='+224600000020')
         product = Product.objects.create(
@@ -218,6 +316,66 @@ class CoreApiTests(TestCase):
         self.assertIn('customers', response.data)
         self.assertIn('payments', response.data)
         self.assertTrue(any(item['sku'] == 'PRD-SEARCH-001' for item in response.data['products']))
+
+    def test_global_search_includes_sales_and_cartons(self):
+        from inventory.models import Carton, InventoryLocation
+
+        customer = Customer.objects.create(full_name='Client recherche vente')
+        product = Product.objects.create(
+            sku='SEARCH-CARTON-001',
+            name='Produit carton recherche',
+            selling_price=Decimal('15000.00'),
+            quantity=4,
+        )
+        sale = Sale.objects.create(
+            customer=customer,
+            status='paid',
+            payment_method='cash',
+            total_amount=Decimal('15000.00'),
+            amount_paid=Decimal('15000.00'),
+            external_reference='SALE-SEARCH-001',
+        )
+        location = InventoryLocation.objects.create(name='Emplacement recherche', code='SEARCH-LOC')
+        carton = Carton.objects.create(
+            product=product,
+            location=location,
+            reference='CARTON-SEARCH-001',
+            quantity=2,
+            items_per_carton=1,
+        )
+
+        response = self.client.get('/api/v1/search/', {'q': 'SEARCH'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any(item['id'] == sale.id for item in response.data['sales']))
+        self.assertTrue(any(item['id'] == carton.id for item in response.data['cartons']))
+
+    def test_offline_sale_sync_is_idempotent(self):
+        customer = Customer.objects.create(full_name='Client synchronisation')
+        product = Product.objects.create(
+            sku='SYNC-PRODUCT-001',
+            name='Produit synchronisation',
+            selling_price=Decimal('9000.00'),
+            quantity=3,
+        )
+        operation = {
+            'local_id': 'LOCAL-SALE-001',
+            'operation_type': 'sale',
+            'payload': {
+                'customer': customer.id,
+                'status': 'paid',
+                'payment_method': 'cash',
+                'items': [{'product': product.id, 'quantity': 1, 'unit_price': '9000.00'}],
+            },
+        }
+
+        first = self.client.post('/api/v1/sync/', operation, format='json')
+        second = self.client.post('/api/v1/sync/', operation, format='json')
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.data['results'][0]['status'], 'accepted')
+        self.assertEqual(second.data['results'][0]['result']['id'], first.data['results'][0]['result']['id'])
+        self.assertEqual(Sale.objects.filter(customer=customer).count(), 1)
 
     def test_app_settings_require_admin_role(self):
         manager = User.objects.create_user(
