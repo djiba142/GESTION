@@ -43,6 +43,13 @@ class SupplierImport(models.Model):
     ]
 
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name='supplier_imports')
+    purchase_order = models.ForeignKey(
+        'purchases.PurchaseOrder',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='supplier_imports',
+    )
     file_name = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='parsed')
     parsed_rows = models.PositiveIntegerField(default=0)

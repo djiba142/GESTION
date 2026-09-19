@@ -17,6 +17,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('products')]
+    pagination_class = None
 
     def get_queryset(self):
         queryset = Product.objects.select_related('category').all()
@@ -37,9 +38,52 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('products'), SensitiveMutationPermission]
 
+    def destroy(self, request, *args, **kwargs):
+        return Response(
+            {'detail': 'La suppression physique d’un produit est interdite. Utilisez l’archivage.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+
+class ProductArchiveView(generics.GenericAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticated, role_permission('products'), SensitiveMutationPermission]
+
+    def post(self, request, *args, **kwargs):
+        product = self.get_object()
+        product.is_active = False
+        product.save(update_fields=['is_active', 'updated_at'])
+        return Response(self.get_serializer(product).data, status=status.HTTP_200_OK)
+
+
+class ProductStockView(generics.GenericAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticated, role_permission('products')]
+
+    def get(self, request, *args, **kwargs):
+        product = self.get_object()
+        from inventory.models import StockItem
+
+        stock_items = StockItem.objects.filter(product=product).select_related('location')
+        return Response({
+            'product': product.id,
+            'quantity': sum(item.quantity for item in stock_items),
+            'locations': [
+                {
+                    'location': item.location_id,
+                    'location_name': item.location.name,
+                    'quantity': item.quantity,
+                }
+                for item in stock_items
+            ],
+        }, status=status.HTTP_200_OK)
+
 
 class ProductLabelView(generics.GenericAPIView):
     queryset = Product.objects.all()
+    serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('products')]
 
     def post(self, request, *args, **kwargs):
@@ -63,8 +107,25 @@ class ProductLabelView(generics.GenericAPIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class ProductQrView(generics.GenericAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticated, role_permission('products')]
+
+    def get(self, request, *args, **kwargs):
+        product = self.get_object()
+        return Response({
+            'type': 'product',
+            'id': product.id,
+            'sku': product.sku,
+            'name': product.name,
+            'qr_code': product.qr_code,
+        }, status=status.HTTP_200_OK)
+
+
 class ProductScanView(generics.GenericAPIView):
     queryset = Product.objects.all()
+    serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('products')]
 
     def get(self, request, *args, **kwargs):

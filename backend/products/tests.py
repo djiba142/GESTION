@@ -101,3 +101,55 @@ class ProductApiTests(TestCase):
         self.assertEqual(response.data['name'], 'Étiquette Produit')
         self.assertTrue(response.data['qr_code'].startswith('NEXORA-'))
         self.assertEqual(response.data['selling_price'], '210000.00')
+
+    def test_product_can_be_archived_without_being_deleted(self):
+        product = Product.objects.create(
+            sku='PRD-ARCHIVE-001',
+            name='Produit à archiver',
+            quantity=4,
+        )
+
+        response = self.client.post(f'/api/products/{product.id}/archive/', format='json')
+
+        self.assertEqual(response.status_code, 200)
+        product.refresh_from_db()
+        self.assertFalse(product.is_active)
+        self.assertTrue(Product.objects.filter(pk=product.id).exists())
+
+    def test_product_delete_is_rejected(self):
+        product = Product.objects.create(sku='PRD-NODELETE-001', name='Produit protégé')
+
+        response = self.client.delete(f'/api/products/{product.id}/')
+
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(Product.objects.filter(pk=product.id).exists())
+
+    def test_product_quantity_cannot_be_changed_directly(self):
+        product = Product.objects.create(
+            sku='PRD-QUANTITY-LOCK',
+            name='Produit quantité protégée',
+            quantity=8,
+        )
+
+        response = self.client.patch(
+            f'/api/products/{product.id}/',
+            {'quantity': 99},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        product.refresh_from_db()
+        self.assertEqual(product.quantity, 8)
+
+    def test_product_stock_returns_quantities_by_location(self):
+        from inventory.models import InventoryLocation, StockItem
+
+        product = Product.objects.create(sku='PRD-STOCK-001', name='Produit stock')
+        location = InventoryLocation.objects.create(name='Entrepôt stock', code='STOCK-LOC-01')
+        StockItem.objects.create(product=product, location=location, quantity=9)
+
+        response = self.client.get(f'/api/products/{product.id}/stock/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['quantity'], 9)
+        self.assertEqual(response.data['locations'][0]['location'], location.id)

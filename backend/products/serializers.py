@@ -28,6 +28,13 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_category_name(self, obj):
         return obj.category.name if obj.category else None
 
+    def validate(self, attrs):
+        if self.instance is not None and 'quantity' in attrs:
+            raise serializers.ValidationError({
+                'quantity': 'La quantité doit être modifiée via les mouvements de stock.',
+            })
+        return attrs
+
     def get_margin_amount(self, obj):
         return obj.selling_price - obj.cost_price
 
