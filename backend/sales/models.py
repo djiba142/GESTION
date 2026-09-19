@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+import uuid
 
 from customers.models import Customer
 from suppliers.models import Supplier
@@ -65,6 +66,7 @@ class SaleItem(models.Model):
 class Invoice(models.Model):
     sale = models.OneToOneField(Sale, on_delete=models.CASCADE, related_name='invoice')
     invoice_number = models.CharField(max_length=80, unique=True)
+    verification_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     qr_code = models.CharField(max_length=200, blank=True, default='')
     issue_date = models.DateTimeField(auto_now_add=True)
     total_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -80,7 +82,7 @@ class Invoice(models.Model):
     def generate_qr_code(self):
         if self.qr_code:
             return self.qr_code
-        self.qr_code = f'NEXORA-INV-{self.invoice_number}'
+        self.qr_code = f'NEXORA-INV-{self.invoice_number}-{str(self.verification_token).replace("-", "")[:8].upper()}'
         return self.qr_code
 
     def save(self, *args, **kwargs):

@@ -2,8 +2,10 @@ SPÉCIFICATIONS API ET INTÉGRATION
 Projet : Système intégré de gestion commerciale, des stocks, des achats et des ventes
 Version : 1.0
 Statut : Document de référence technique et fonctionnel
-Architecture : React + Vite ↔ Django REST Framework
-Base de données : PostgreSQL
+Architecture cible : React + Vite ↔ Django REST Framework
+Architecture actuelle : frontend HTML/Bootstrap/JavaScript ↔ Django REST Framework
+Base de données cible : PostgreSQL
+Base de données actuelle : MySQL `db_gestion` sur `127.0.0.1:3306`
 Communication : API REST sécurisée
 Document précédent : Document 03 — Spécifications UI/UX et Design System
 SOMMAIRE

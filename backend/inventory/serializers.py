@@ -1,14 +1,70 @@
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 from products.models import Product
 from .models import Carton, InventoryLocation, StockItem, StockMovement, StockTransfer
 
 
+@transaction.atomic
+def transition_stock_transfer(transfer, target_status, user=None):
+    transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+    source_item, _ = StockItem.objects.select_for_update().get_or_create(
+        product=transfer.product,
+        location=transfer.from_location,
+    )
+
+    if target_status == 'validated':
+        if transfer.status != 'requested':
+            raise ValidationError('Le transfert doit être demandé avant validation.')
+        if source_item.quantity < transfer.quantity:
+            raise ValidationError('La quantité demandée dépasse le stock disponible dans l’emplacement source.')
+    elif target_status == 'shipped':
+        if transfer.status != 'validated':
+            raise ValidationError('Le transfert doit être validé avant expédition.')
+        if source_item.quantity < transfer.quantity:
+            raise ValidationError('La quantité en stock source est insuffisante pour ce transfert.')
+        source_item.quantity -= transfer.quantity
+        source_item.save(update_fields=['quantity', 'updated_at'])
+        StockMovement.objects.create(
+            product=transfer.product,
+            location=transfer.from_location,
+            movement_type='out',
+            quantity=transfer.quantity,
+            reference=transfer.reference,
+            notes=f'Transfert vers {transfer.to_location.name}',
+            created_by=user,
+        )
+    elif target_status == 'received':
+        if transfer.status != 'shipped':
+            raise ValidationError('Le transfert doit être expédié avant réception.')
+        destination_item, _ = StockItem.objects.select_for_update().get_or_create(
+            product=transfer.product,
+            location=transfer.to_location,
+        )
+        destination_item.quantity += transfer.quantity
+        destination_item.save(update_fields=['quantity', 'updated_at'])
+        StockMovement.objects.create(
+            product=transfer.product,
+            location=transfer.to_location,
+            movement_type='in',
+            quantity=transfer.quantity,
+            reference=transfer.reference,
+            notes=f'Transfert depuis {transfer.from_location.name}',
+            created_by=user,
+        )
+    else:
+        raise ValidationError('Transition de transfert non supportée.')
+
+    transfer.status = target_status
+    transfer.save(update_fields=['status', 'updated_at'])
+    return transfer
+
+
 class InventoryLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryLocation
-        fields = ['id', 'name', 'code', 'location_type', 'address', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'code', 'location_type', 'address', 'is_active', 'authorized_users', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -76,16 +132,22 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
         if movement_type == 'in':
             stock_item.quantity += quantity
+            product.quantity = (product.quantity or 0) + quantity
         elif movement_type == 'out':
             if stock_item.quantity - quantity < 0:
                 raise ValidationError('La quantité en stock ne peut pas devenir négative.')
             stock_item.quantity -= quantity
+            if (product.quantity or 0) - quantity < 0:
+                raise ValidationError('La quantité globale du produit ne peut pas devenir négative.')
+            product.quantity -= quantity
         elif movement_type == 'adjustment':
             stock_item.quantity = quantity
         else:
             raise ValidationError('Type de mouvement non supporté.')
 
         stock_item.save(update_fields=['quantity', 'updated_at'])
+        if movement_type in {'in', 'out'}:
+            product.save(update_fields=['quantity', 'updated_at'])
 
         movement_data = dict(validated_data)
         movement_data.pop('created_by', None)
@@ -143,41 +205,8 @@ class StockTransferSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         created_by = request.user if request and getattr(request, 'user', None) else None
         validated_data.pop('created_by', None)
-
-        transfer = StockTransfer.objects.create(created_by=created_by, **validated_data)
-
-        source_item, _ = StockItem.objects.get_or_create(product=transfer.product, location=transfer.from_location)
-        destination_item, _ = StockItem.objects.get_or_create(product=transfer.product, location=transfer.to_location)
-
-        if source_item.quantity < transfer.quantity:
-            raise ValidationError('La quantité en stock source est insuffisante pour ce transfert.')
-
-        source_item.quantity -= transfer.quantity
-        source_item.save(update_fields=['quantity', 'updated_at'])
-
-        destination_item.quantity += transfer.quantity
-        destination_item.save(update_fields=['quantity', 'updated_at'])
-
-        StockMovement.objects.create(
-            product=transfer.product,
-            location=transfer.from_location,
-            movement_type='out',
-            quantity=transfer.quantity,
-            reference=transfer.reference,
-            notes=f'Transfert vers {transfer.to_location.name}',
-            created_by=created_by,
-        )
-        StockMovement.objects.create(
-            product=transfer.product,
-            location=transfer.to_location,
-            movement_type='in',
-            quantity=transfer.quantity,
-            reference=transfer.reference,
-            notes=f'Transfert depuis {transfer.from_location.name}',
-            created_by=created_by,
-        )
-
-        return transfer
+        validated_data['status'] = 'requested'
+        return StockTransfer.objects.create(created_by=created_by, **validated_data)
 
 
 class CartonSerializer(serializers.ModelSerializer):

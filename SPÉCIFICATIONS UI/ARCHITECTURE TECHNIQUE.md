@@ -33,7 +33,7 @@ Gestion des QR Codes
 Gestion des factures et PDF
 Architecture des notifications
 Intégration WhatsApp
-Synchronisation des données
+Synchronisation des données&&&& 
 Fonctionnement hors connexion
 Gestion des transactions
 Gestion des événements et tâches asynchrones

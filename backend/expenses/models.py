@@ -32,3 +32,14 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.title} - {self.amount}'
+
+
+class ExpenseAttachment(models.Model):
+    expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name='attachments')
+    file = models.FileField(upload_to='expense_justifications/')
+    original_name = models.CharField(max_length=255, blank=True, default='')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']

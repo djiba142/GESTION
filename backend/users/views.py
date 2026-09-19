@@ -14,7 +14,7 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_vie
 from core.models import AuditLog
 from .models import User
 from .permissions import IsAdminUser
-from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, RegisterSerializer, UserProfileSerializer, UserSerializer
+from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, UserProfileSerializer, UserSerializer
 
 
 class UserListView(generics.ListCreateAPIView):
@@ -146,21 +146,6 @@ class LoginView(APIView):
             'message': 'Connexion réussie.',
             'user': UserSerializer(user).data,
         }, status=status.HTTP_200_OK)
-
-
-class RegisterView(generics.CreateAPIView):
-    serializer_class = RegisterSerializer
-    permission_classes = [permissions.AllowAny]
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response({
-            'success': True,
-            'message': 'Compte créé avec succès. Vous pouvez vous connecter.',
-            'user': UserSerializer(user).data,
-        }, status=status.HTTP_201_CREATED)
 
 
 class PinResetRequestView(APIView):

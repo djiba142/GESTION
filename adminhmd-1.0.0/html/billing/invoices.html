@@ -159,10 +159,10 @@
           </div>
 
           <section class="panel">
-            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-receipt" aria-hidden="true"></i><span>Registre des factures</span></h2><p class="text-muted mb-0">Consultation des factures renvoyées par Django.</p></div></div>
-            <div class="table-responsive"><table class="table align-middle mb-0" data-invoices-table><thead><tr><th>Facture</th><th>Vente</th><th>Total</th><th>Payé</th><th>Date</th><th></th></tr></thead><tbody><tr><td colspan="6" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
+            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-receipt" aria-hidden="true"></i><span>Registre des factures</span></h2><p class="text-muted mb-0">Consultation des factures renvoyées par Django.</p></div><input class="form-control form-control-sm table-search" type="search" placeholder="Rechercher une facture" data-invoice-search data-client-search="#invoicesTable" aria-label="Rechercher une facture"></div>
+            <div class="table-responsive"><table class="table align-middle mb-0" id="invoicesTable" data-invoices-table data-api-enhanced="true"><thead><tr><th>Facture</th><th>Vente</th><th>Total</th><th>Payé</th><th>Date</th><th></th></tr></thead><tbody><tr><td colspan="6" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
           </section>
-          <div class="modal fade" id="invoiceDetailModal" tabindex="-1" aria-labelledby="invoiceDetailLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5" id="invoiceDetailLabel">Détail facture</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button></div><div class="modal-body" data-invoice-detail>Chargement...</div><div class="modal-footer"><button type="button" class="btn btn-primary" data-invoice-print><i class="bi bi-printer" aria-hidden="true"></i> Imprimer</button></div></div></div></div>
+          <div class="modal fade" id="invoiceDetailModal" tabindex="-1" aria-labelledby="invoiceDetailLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5" id="invoiceDetailLabel">Détail facture</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button></div><div class="modal-body" data-invoice-detail>Chargement...</div><div class="modal-footer"><div class="me-auto small" data-invoice-share-message role="status"></div><button type="button" class="btn btn-outline-secondary" data-invoice-download><i class="bi bi-download" aria-hidden="true"></i> Télécharger PDF</button><button type="button" class="btn btn-outline-success" data-invoice-whatsapp><i class="bi bi-whatsapp" aria-hidden="true"></i> Partager sur WhatsApp</button><button type="button" class="btn btn-primary" data-invoice-print><i class="bi bi-printer" aria-hidden="true"></i> Imprimer</button></div></div></div></div>
         </div>
       </main>
 
@@ -191,8 +191,75 @@
         table.querySelectorAll("[data-invoice-id]").forEach(function (button) {
           button.addEventListener("click", function () {
             window.NexoraAPI.getInvoice(button.getAttribute("data-invoice-id")).then(function (invoice) {
-              document.querySelector("[data-invoice-detail]").innerHTML = '<dl class="row mb-0"><dt class="col-5">Facture</dt><dd class="col-7">' + invoice.invoice_number + '</dd><dt class="col-5">Total</dt><dd class="col-7">' + invoice.total_amount + '</dd><dt class="col-5">Payé</dt><dd class="col-7">' + invoice.paid_amount + '</dd><dt class="col-5">QR</dt><dd class="col-7">' + (invoice.qr_code || "-") + '</dd></dl>';
-              document.querySelector("[data-invoice-print]").onclick = function () { window.print(); };
+              document.querySelector("[data-invoice-detail]").innerHTML = '<div class="row g-3 align-items-end"><div class="col-8"><dl class="row mb-0"><dt class="col-5">Facture</dt><dd class="col-7">' + invoice.invoice_number + '</dd><dt class="col-5">Total</dt><dd class="col-7">' + invoice.total_amount + '</dd><dt class="col-5">Payé</dt><dd class="col-7">' + invoice.paid_amount + '</dd><dt class="col-5">QR sécurisé</dt><dd class="col-7">' + (invoice.qr_code || "-") + '</dd></dl></div><div class="col-4 text-center"><img class="img-fluid" style="max-width:120px" src="' + (invoice.qr_image_url || "") + '" alt="QR de vérification de la facture"><small class="d-block text-muted mt-2">Scanner pour vérifier</small></div></div>';
+              var printButton = document.querySelector("[data-invoice-print]");
+              var downloadButton = document.querySelector("[data-invoice-download]");
+              var whatsappButton = document.querySelector("[data-invoice-whatsapp]");
+              var shareMessage = document.querySelector("[data-invoice-share-message]");
+              printButton.onclick = function () { window.print(); };
+              function downloadPdf() {
+                shareMessage.className = "me-auto small text-muted";
+                shareMessage.textContent = "Préparation du PDF...";
+                return window.NexoraAPI.getInvoicePdf(invoice.id).then(function (blob) {
+                  var downloadUrl = URL.createObjectURL(blob);
+                  var link = document.createElement("a");
+                  link.href = downloadUrl;
+                  link.download = invoice.invoice_number + ".pdf";
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.setTimeout(function () { URL.revokeObjectURL(downloadUrl); }, 1000);
+                  shareMessage.className = "me-auto small text-success";
+                  shareMessage.textContent = "PDF téléchargé avec son QR Code.";
+                  return blob;
+                }).catch(function (error) {
+                  shareMessage.className = "me-auto small text-danger";
+                  shareMessage.textContent = error.message;
+                  throw error;
+                });
+              }
+              downloadButton.onclick = function () {
+                downloadButton.disabled = true;
+                downloadPdf().finally(function () { downloadButton.disabled = false; });
+              };
+              whatsappButton.onclick = function () {
+                var originalLabel = whatsappButton.innerHTML;
+                whatsappButton.disabled = true;
+                shareMessage.className = "me-auto small text-muted";
+                shareMessage.textContent = "Préparation du PDF...";
+                window.NexoraAPI.getInvoicePdf(invoice.id).then(function (blob) {
+                  var file = new File([blob], invoice.invoice_number + ".pdf", { type: "application/pdf" });
+                  var shareText = "Facture " + invoice.invoice_number + " - " + (invoice.verification_url || "");
+                  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                    return navigator.share({ title: "Facture " + invoice.invoice_number, text: shareText, files: [file] }).then(function () {
+                      shareMessage.className = "me-auto small text-success";
+                      shareMessage.textContent = "Facture partagée avec son QR Code.";
+                    });
+                  }
+
+                  var customerPhone = invoice.customer && invoice.customer.phone ? String(invoice.customer.phone).replace(/[^0-9]/g, "") : "";
+                  var whatsappUrl = "https://wa.me/" + customerPhone + "?text=" + encodeURIComponent(shareText);
+                  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+                  var downloadUrl = URL.createObjectURL(blob);
+                  var link = document.createElement("a");
+                  link.href = downloadUrl;
+                  link.download = file.name;
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.setTimeout(function () { URL.revokeObjectURL(downloadUrl); }, 1000);
+                  shareMessage.className = "me-auto small text-success";
+                  shareMessage.textContent = "WhatsApp ouvert. Ajoutez le PDF téléchargé à la conversation.";
+                }).catch(function (error) {
+                  if (error.name !== "AbortError") {
+                    shareMessage.className = "me-auto small text-danger";
+                    shareMessage.textContent = error.message;
+                  }
+                }).finally(function () {
+                  whatsappButton.disabled = false;
+                  whatsappButton.innerHTML = originalLabel;
+                });
+              };
               bootstrap.Modal.getOrCreateInstance(document.getElementById("invoiceDetailModal")).show();
             });
           });

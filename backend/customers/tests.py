@@ -56,3 +56,35 @@ class CustomerApiTests(TestCase):
         response = client.get('/api/customers/')
 
         self.assertEqual(response.status_code, 200)
+
+    def test_customer_history_and_credit_endpoints(self):
+        from decimal import Decimal
+        from payments.models import Payment
+        from sales.models import Sale
+
+        customer = Customer.objects.create(full_name='Client historique')
+        sale = Sale.objects.create(
+            customer=customer,
+            status='partial',
+            payment_method='cash',
+            total_amount=Decimal('10000.00'),
+            amount_paid=Decimal('4000.00'),
+        )
+        Payment.objects.create(
+            customer=customer,
+            sale=sale,
+            amount=Decimal('4000.00'),
+            payment_method='cash',
+            reference='PAY-HISTORY-001',
+        )
+
+        sales_response = self.client.get(f'/api/v1/customers/{customer.id}/sales/')
+        payments_response = self.client.get(f'/api/v1/customers/{customer.id}/payments/')
+        credit_response = self.client.get(f'/api/v1/customers/{customer.id}/credit/')
+
+        self.assertEqual(sales_response.status_code, 200)
+        self.assertEqual(len(sales_response.data), 1)
+        self.assertEqual(payments_response.status_code, 200)
+        self.assertEqual(len(payments_response.data), 1)
+        self.assertEqual(credit_response.status_code, 200)
+        self.assertEqual(credit_response.data['balance'], 6000.0)

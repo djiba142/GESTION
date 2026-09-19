@@ -74,3 +74,73 @@ class SaleApiTests(TestCase):
         sale = self.client.get(f"/api/sales/{response.data['id']}/")
         self.assertTrue(sale.data['invoice_qr_code'])
         self.assertTrue(sale.data['invoice_qr_code'].startswith('NEXORA-INV-'))
+
+    def test_external_sale_endpoint_forces_external_flag(self):
+        from suppliers.models import Supplier
+
+        supplier = Supplier.objects.create(name='Fournisseur externe')
+        response = self.client.post(
+            '/api/v1/sales/external/',
+            {
+                'customer': self.customer.id,
+                'external_supplier': supplier.id,
+                'external_reference': 'EXT-001',
+                'status': 'paid',
+                'payment_method': 'cash',
+                'items': [{'product': self.product.id, 'quantity': 1, 'unit_price': '300000.00'}],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data['is_external'])
+
+    def test_sale_with_location_decrements_location_stock(self):
+        from inventory.models import InventoryLocation, StockItem
+
+        location = InventoryLocation.objects.create(name='Boutique vente', code='SALE-LOCATION')
+        StockItem.objects.create(product=self.product, location=location, quantity=3)
+
+        response = self.client.post(
+            '/api/v1/sales/',
+            {
+                'customer': self.customer.id,
+                'location': location.id,
+                'status': 'paid',
+                'payment_method': 'cash',
+                'items': [{'product': self.product.id, 'quantity': 2, 'unit_price': '300000.00'}],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(StockItem.objects.get(product=self.product, location=location).quantity, 1)
+
+    def test_sale_delete_is_rejected(self):
+        response = self.client.post(
+            '/api/sales/',
+            {
+                'customer': self.customer.id,
+                'status': 'paid',
+                'payment_method': 'cash',
+                'items': [{'product': self.product.id, 'quantity': 1, 'unit_price': '300000.00'}],
+            },
+            format='json',
+        )
+
+        delete_response = self.client.delete(f"/api/sales/{response.data['id']}/")
+        self.assertEqual(delete_response.status_code, 405)
+
+    def test_sale_idempotency_replays_same_response(self):
+        payload = {
+            'customer': self.customer.id,
+            'status': 'paid',
+            'payment_method': 'cash',
+            'items': [{'product': self.product.id, 'quantity': 1, 'unit_price': '300000.00'}],
+        }
+        first = self.client.post('/api/v1/sales/', payload, format='json', HTTP_IDEMPOTENCY_KEY='SALE-ONCE-001')
+        second = self.client.post('/api/v1/sales/', payload, format='json', HTTP_IDEMPOTENCY_KEY='SALE-ONCE-001')
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(second.data['id'], first.data['id'])

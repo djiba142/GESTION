@@ -228,7 +228,7 @@
               </div>
             </div>
             <div class="table-responsive">
-              <table class="table align-middle mb-0" id="usersTable" data-searchable-table data-users-table>
+              <table class="table align-middle mb-0" id="usersTable" data-searchable-table data-users-table data-api-load="users/" data-search-input="[data-table-search='usersTable']" data-loading-text="Chargement des utilisateurs..." data-empty-text="Aucun utilisateur trouvé." data-error-text="Impossible de charger les utilisateurs.">
                 <thead><tr><th scope="col">Utilisateur</th><th scope="col">Rôle</th><th scope="col">Équipe</th><th scope="col">Statut</th><th scope="col">Inscription</th><th scope="col" class="text-end">Action</th></tr></thead>
                 <tbody>
                   <tr>
@@ -324,7 +324,11 @@
             <form class="row g-3" data-credit-form>
               <div class="col-md-6"><label class="form-label" for="creditCustomer">Client</label><select class="form-select" id="creditCustomer" required><option value="">Chargement...</option></select></div>
               <div class="col-md-3 d-flex align-items-end"><button class="btn btn-outline-primary w-100" type="submit"><i class="bi bi-search" aria-hidden="true"></i> Consulter</button></div>
-              <div class="col-12"><div class="row g-3" data-credit-result><div class="col-md-4"><small class="text-muted">Ventes</small><strong class="d-block" data-credit-sales>-</strong></div><div class="col-md-4"><small class="text-muted">Payé</small><strong class="d-block" data-credit-paid>-</strong></div><div class="col-md-4"><small class="text-muted">Solde</small><strong class="d-block" data-credit-balance>-</strong></div></div></div>
+              <div class="col-md-3 d-flex align-items-end"><button class="btn btn-outline-dark w-100" type="button" data-credit-print><i class="bi bi-printer" aria-hidden="true"></i> État de compte</button></div>
+              <div class="col-12"><div class="row g-3" data-credit-result><div class="col-md-3"><small class="text-muted">Achats à crédit</small><strong class="d-block" data-credit-sales>-</strong></div><div class="col-md-3"><small class="text-muted">Total crédit</small><strong class="d-block" data-credit-total>-</strong></div><div class="col-md-3"><small class="text-muted">Payé</small><strong class="d-block" data-credit-paid>-</strong></div><div class="col-md-3"><small class="text-muted">Solde</small><strong class="d-block" data-credit-balance>-</strong></div></div></div>
+              <div class="col-12"><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Facture</th><th>Date</th><th>Crédit</th><th>Payé</th><th>Reste</th></tr></thead><tbody data-credit-history><tr><td colspan="5" class="text-muted">Sélectionnez un client.</td></tr></tbody></table></div></div>
+              <div class="col-12"><div class="row g-3"><div class="col-md-3"><label class="form-label" for="creditSale">Créance à régler</label><select class="form-select" id="creditSale" required><option value="">Sélectionnez un client</option></select></div><div class="col-md-3"><label class="form-label" for="creditPaymentAmount">Montant payé</label><input class="form-control" id="creditPaymentAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-3"><label class="form-label" for="creditPaymentMethod">Mode</label><select class="form-select" id="creditPaymentMethod"><option value="cash">Espèces</option><option value="mobile_money">Mobile money</option><option value="bank_transfer">Virement</option></select></div><div class="col-md-3 d-flex align-items-end"><button class="btn btn-success w-100" type="button" data-credit-payment><i class="bi bi-check2-circle" aria-hidden="true"></i> Enregistrer paiement</button></div></div></div>
+              <div class="col-12"><div class="alert d-none" data-credit-message role="alert"></div></div>
             </form>
           </section>
           <section class="panel mt-3">
@@ -362,38 +366,39 @@
   <script src="../../assets/js/features/loader.js"></script>
   <script>
     (function () {
-      var table = document.querySelector("[data-users-table] tbody");
+      var table = document.querySelector("[data-users-table]");
       var search = document.querySelector("[data-table-search='usersTable']");
       var currentUsers = [];
       if (!table || !window.NexoraAPI) return;
 
       function renderUtilisateurs(users) {
-        currentUsers = users;
-        if (!users.length) {
-          table.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-4">Aucun utilisateur trouvé.</td></tr>';
-          return;
-        }
-        table.innerHTML = users.map(function (user) {
+        currentUsers = Array.isArray(users) ? users : [];
+        var rows = currentUsers.map(function (user) {
           var name = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username;
           var statusClass = user.is_active ? "success" : "secondary";
           return '<tr><td><span class="fw-semibold">' + name + '</span><small class="d-block text-muted">' + (user.email || user.phone || "") + '</small></td>'
             + '<td>' + (user.role || "-") + '</td><td>-</td><td><span class="badge text-bg-' + statusClass + '">' + (user.is_active ? "Actif" : "Inactif") + '</span></td>'
             + '<td>' + (user.created_at ? new Date(user.created_at).toLocaleDateString("fr-FR") : "-") + '</td><td class="text-end"><a class="btn btn-light btn-sm" href="../admin/user-details.html?id=' + user.id + '">Voir</a></td></tr>';
         }).join("");
+
+        table.querySelector("tbody").innerHTML = rows || '<tr><td colspan="6" class="text-muted text-center py-4">Aucun utilisateur trouvé.</td></tr>';
       }
 
       function loadUtilisateurs() {
-        table.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-4">Chargement des utilisateurs...</td></tr>';
-        window.NexoraAPI.getUtilisateurs(search.value.trim()).then(renderUtilisateurs).catch(function (error) {
-          table.innerHTML = '<tr><td colspan="6" class="text-danger text-center py-4">' + error.message + '</td></tr>';
+        window.NexoraUI.loadApiTable(table, function (query) {
+          return window.NexoraAPI.getUtilisateurs(query || (search && search.value.trim()));
+        }, {
+          searchInput: "[data-table-search='usersTable']",
+          loadingMessage: "Chargement des utilisateurs...",
+          emptyMessage: "Aucun utilisateur trouvé.",
+          errorMessage: "Impossible de charger les utilisateurs.",
+          renderItems: function (users) {
+            renderUtilisateurs(users);
+            return table.querySelector("tbody").innerHTML;
+          }
         });
       }
 
-      var searchTimer;
-      search.addEventListener("input", function () {
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(loadUtilisateurs, 250);
-      });
       loadUtilisateurs();
       document.querySelector("[data-users-export]").addEventListener("click", function () {
         var rows = [['Nom', 'Email', 'Rôle', 'Statut', 'Création']].concat(currentUsers.map(function (user) {
@@ -433,8 +438,88 @@
         if (!customerId) return;
         window.NexoraAPI.getCustomerPaymentSummary(customerId).then(function (summary) {
           document.querySelector("[data-credit-sales]").textContent = summary.sales_total;
+          document.querySelector("[data-credit-total]").textContent = summary.sales_total;
           document.querySelector("[data-credit-paid]").textContent = summary.total_paid;
           document.querySelector("[data-credit-balance]").textContent = summary.balance;
+        });
+      });
+
+      document.querySelector("[data-credit-print]").addEventListener("click", function () {
+        var customerId = document.getElementById("creditCustomer").value;
+        if (!customerId) return;
+        window.NexoraAPI.getCustomerCreditDetail(customerId).then(function (detail) {
+          var rows = detail.sales.map(function (sale) {
+            return '<tr><td>' + (sale.invoice_number || 'Vente #' + sale.sale_id) + '</td><td>' + new Date(sale.date).toLocaleDateString('fr-FR') + '</td><td>' + sale.total_credit + '</td><td>' + sale.total_paid + '</td><td>' + sale.balance + '</td></tr>';
+          }).join('');
+          var printWindow = window.open('', '_blank', 'width=900,height=700');
+          printWindow.document.write('<html><head><title>État de compte - ' + detail.customer.full_name + '</title><style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ddd;padding:8px;text-align:left}h1,h2{margin-bottom:8px}.sum{display:flex;gap:12px;margin:16px 0}.box{padding:10px 14px;border:1px solid #ddd;border-radius:6px}</style></head><body>'
+            + '<h1>État de compte client</h1>'
+            + '<h2>' + detail.customer.full_name + '</h2>'
+            + '<div class="sum"><div class="box"><strong>Total crédit</strong><div>' + detail.total_credit + '</div></div><div class="box"><strong>Payé</strong><div>' + detail.total_paid + '</div></div><div class="box"><strong>Solde</strong><div>' + detail.balance + '</div></div></div>'
+            + '<table><thead><tr><th>Facture</th><th>Date</th><th>Crédit</th><th>Payé</th><th>Reste</th></tr></thead><tbody>' + rows + '</tbody></table>'
+            + '</body></html>');
+          printWindow.document.close();
+          printWindow.focus();
+          printWindow.print();
+        }).catch(function (error) {
+          console.error(error);
+        });
+      });
+
+      document.getElementById("creditCustomer").addEventListener("change", function () {
+        var customerId = this.value;
+        var history = document.querySelector("[data-credit-history]");
+        var saleSelect = document.getElementById("creditSale");
+        if (!customerId) {
+          history.innerHTML = '<tr><td colspan="5" class="text-muted">Sélectionnez un client.</td></tr>';
+          saleSelect.innerHTML = '<option value="">Sélectionnez un client</option>';
+          return;
+        }
+        window.NexoraAPI.getCustomerCreditDetail(customerId).then(function (detail) {
+          document.querySelector("[data-credit-sales]").textContent = detail.sales_count;
+          document.querySelector("[data-credit-total]").textContent = detail.total_credit;
+          document.querySelector("[data-credit-paid]").textContent = detail.total_paid;
+          document.querySelector("[data-credit-balance]").textContent = detail.balance;
+          history.innerHTML = detail.sales.length ? detail.sales.map(function (sale) {
+            return '<tr><td>' + (sale.invoice_number || "Vente #" + sale.sale_id) + '</td><td>' + new Date(sale.date).toLocaleDateString("fr-FR") + '</td><td>' + sale.total_credit + '</td><td>' + sale.total_paid + '</td><td>' + sale.balance + '</td></tr>';
+          }).join("") : '<tr><td colspan="5" class="text-muted">Aucune créance.</td></tr>';
+          saleSelect.innerHTML = '<option value="">Choisir une créance</option>' + detail.sales.filter(function (sale) { return Number(sale.balance) > 0; }).map(function (sale) {
+            return '<option value="' + sale.sale_id + '" data-balance="' + sale.balance + '">' + (sale.invoice_number || "Vente #" + sale.sale_id) + ' - reste ' + sale.balance + '</option>';
+          }).join("");
+        }).catch(function (error) {
+          history.innerHTML = '<tr><td colspan="5" class="text-danger">' + error.message + '</td></tr>';
+        });
+      });
+
+      document.querySelector("[data-credit-payment]").addEventListener("click", function () {
+        var customerId = document.getElementById("creditCustomer").value;
+        var saleId = document.getElementById("creditSale").value;
+        var amount = Number(document.getElementById("creditPaymentAmount").value);
+        var message = document.querySelector("[data-credit-message]");
+        if (!customerId || !saleId || !amount || amount <= 0) return;
+        var selectedSale = document.querySelector("#creditSale option:checked");
+        if (selectedSale && amount > Number(selectedSale.dataset.balance)) {
+          message.className = "alert alert-danger";
+          message.textContent = "Le montant du paiement dépasse la dette restante.";
+          message.classList.remove("d-none");
+          return;
+        }
+        window.NexoraAPI.post("payments/", {
+          customer: Number(customerId),
+          sale: Number(saleId),
+          amount: amount,
+          payment_method: document.getElementById("creditPaymentMethod").value,
+          reference: "PAY-CREDIT-" + Date.now()
+        }).then(function () {
+          message.className = "alert alert-success";
+          message.textContent = "Paiement enregistré et solde mis à jour.";
+          message.classList.remove("d-none");
+          document.getElementById("creditPaymentAmount").value = "";
+          document.getElementById("creditCustomer").dispatchEvent(new Event("change"));
+        }).catch(function (error) {
+          message.className = "alert alert-danger";
+          message.textContent = error.message;
+          message.classList.remove("d-none");
         });
       });
       document.querySelector("[data-customer-form]").addEventListener("submit", function (event) {

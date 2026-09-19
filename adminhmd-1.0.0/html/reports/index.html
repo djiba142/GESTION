@@ -175,8 +175,8 @@
             </div>
           </section>
           <section class="panel mt-3">
-            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-wallet2" aria-hidden="true"></i><span>Paiements récents</span></h2><p class="text-muted mb-0">Encaissements enregistrés dans le backend.</p></div></div>
-            <div class="table-responsive"><table class="table align-middle mb-0" data-payments-table><thead><tr><th>Référence</th><th>Client</th><th>Montant</th><th>Méthode</th><th>Date</th></tr></thead><tbody><tr><td colspan="5" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
+            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-wallet2" aria-hidden="true"></i><span>Paiements récents</span></h2><p class="text-muted mb-0">Encaissements enregistrés dans le backend.</p></div><input class="form-control form-control-sm table-search" type="search" placeholder="Rechercher un paiement" data-payment-search data-client-search="#paymentsTable" aria-label="Rechercher un paiement"></div>
+            <div class="table-responsive"><table class="table align-middle mb-0" id="paymentsTable" data-payments-table data-api-enhanced="true"><thead><tr><th>Référence</th><th>Client</th><th>Montant</th><th>Méthode</th><th>Date</th></tr></thead><tbody><tr><td colspan="5" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
           </section>
           <section class="panel mt-3">
             <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-cash-coin" aria-hidden="true"></i><span>Enregistrer un paiement</span></h2><p class="text-muted mb-0">Associer un encaissement à un client ou une vente.</p></div></div>

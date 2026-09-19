@@ -17,6 +17,18 @@ Including another URLconf
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
+from notifications.views import (
+    MessageHistoryView,
+    NotificationDetailView,
+    NotificationDispatchView,
+    NotificationExportView,
+    NotificationHistoryView,
+    NotificationListCreateView,
+    NotificationReadView,
+    WeeklyCreditReminderView,
+)
 
 
 def frontend_home(request):
@@ -25,6 +37,11 @@ def frontend_home(request):
 urlpatterns = [
     path('', frontend_home, name='frontend-home'),
     path('admin/', admin.site.urls),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/v1/', include('nexora_backend.api_v1_urls')),
+    path('api/notifications/export/', NotificationExportView, name='notification-export'),
+    path('api/notifications/', include('notifications.urls')),
     path('api/users/', include('users.urls')),
     path('api/products/', include('products.urls')),
     path('api/suppliers/', include('suppliers.urls')),
@@ -33,7 +50,6 @@ urlpatterns = [
     path('api/purchases/', include('purchases.urls')),
     path('api/sales/', include('sales.urls')),
     path('api/payments/', include('payments.urls')),
-    path('api/notifications/', include('notifications.urls')),
     path('api/expenses/', include('expenses.urls')),
     path('api/invoices/', include('invoices.urls')),
     path('api/documents/', include('documents.urls')),

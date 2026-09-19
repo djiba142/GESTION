@@ -27,6 +27,21 @@
     return payload;
   }
 
+  async function requestBlob(path) {
+    var response;
+    try {
+      response = await fetch(apiUrl(path), { credentials: "include" });
+    } catch (error) {
+      throw new Error("Impossible de joindre le serveur pour télécharger le PDF.");
+    }
+
+    if (!response.ok) {
+      throw new Error("Le PDF de la facture n’est pas disponible.");
+    }
+
+    return response.blob();
+  }
+
   window.NexoraAPI = {
     baseUrl: configuredBaseUrl,
     get: function (path) { return request(path); },
@@ -57,13 +72,17 @@
     getUtilisateurs: function (search) { return this.getUsers(search); },
     getSales: function () { return this.list("sales/"); },
     getPayments: function () { return this.list("payments/"); },
+    getCredits: function () { return this.list("payments/credits/"); },
     getCustomerPaymentSummary: function (customerId) { return request("payments/customer/" + customerId + "/"); },
+    getCustomerCreditDetail: function (customerId) { return request("payments/customer/" + customerId + "/credits/"); },
     getStock: function () { return this.list("inventory/stock/"); },
     getLocations: function () { return this.list("inventory/locations/"); },
     getCartons: function () { return this.list("inventory/cartons/"); },
     getTransfers: function () { return this.list("inventory/transfers/"); },
     getMovements: function () { return this.list("inventory/movements/"); },
     getNotifications: function () { return this.list("notifications/"); },
+    getNotificationHistory: function () { return request("notifications/history/"); },
+    exportNotificationsCsv: function () { return fetch(apiUrl("notifications/export/?format=csv"), { credentials: "include" }); },
     markNotificationRead: function (id) { return request("notifications/" + id + "/read/", { method: "POST", body: JSON.stringify({}) }); },
     dispatchNotification: function (id) { return request("notifications/" + id + "/dispatch/", { method: "POST", body: JSON.stringify({}) }); },
     getExpenses: function () { return this.list("expenses/"); },
@@ -72,6 +91,7 @@
     getReceipts: function () { return this.list("purchases/receipts/"); },
     getInvoices: function () { return this.list("invoices/"); },
     getInvoice: function (id) { return request("invoices/" + id + "/"); },
+    getInvoicePdf: function (id) { return requestBlob("invoices/" + id + "/pdf/"); },
     getDocuments: function () { return this.list("documents/"); },
     updateCurrentUser: function (body) { return request("users/me/", { method: "PATCH", body: JSON.stringify(body) }); },
     getReports: function (filters) {
@@ -84,7 +104,6 @@
     getParamètres: function () { return this.getSettings(); },
     saveSetting: function (body) { return request("core/settings/", { method: "POST", body: JSON.stringify(body) }); },
     login: function (identifier, pin) { return request("users/login/", { method: "POST", body: JSON.stringify({ identifier: identifier, pin: pin }) }); },
-    register: function (fullName, email, pin) { return request("users/register/", { method: "POST", body: JSON.stringify({ full_name: fullName, email: email, pin: pin }) }); },
     requestPinReset: function (email) { return request("users/pin-reset/request/", { method: "POST", body: JSON.stringify({ email: email }) }); },
     confirmPinReset: function (uid, token, pin) { return request("users/pin-reset/confirm/", { method: "POST", body: JSON.stringify({ uid: Number(uid), token: token, pin: pin }) }); },
     logout: function () { return request("users/logout/", { method: "POST", body: JSON.stringify({}) }); }

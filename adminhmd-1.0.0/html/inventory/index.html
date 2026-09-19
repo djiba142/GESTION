@@ -159,12 +159,12 @@
           </div>
 
           <section class="panel">
-            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-boxes" aria-hidden="true"></i><span>Stock par emplacement</span></h2><p class="text-muted mb-0">Les quantités sont calculées et contrôlées par le serveur.</p></div></div>
-            <div class="table-responsive"><table class="table align-middle mb-0" data-stock-table><thead><tr><th>Produit</th><th>Emplacement</th><th>Quantité</th><th>Dernière mise à jour</th></tr></thead><tbody><tr><td colspan="4" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
+            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-boxes" aria-hidden="true"></i><span>Stock par emplacement</span></h2><p class="text-muted mb-0">Les quantités sont calculées et contrôlées par le serveur.</p></div><input class="form-control form-control-sm table-search" type="search" placeholder="Rechercher dans le stock" data-client-search="#stockTable" aria-label="Rechercher dans le stock"></div>
+            <div class="table-responsive"><table class="table align-middle mb-0" id="stockTable" data-stock-table><thead><tr><th>Produit</th><th>Emplacement</th><th>Quantité</th><th>Dernière mise à jour</th></tr></thead><tbody><tr><td colspan="4" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
           </section>
           <section class="panel mt-3">
-            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span>Transferts de stock</span></h2><p class="text-muted mb-0">Historique des mouvements entre emplacements.</p></div></div>
-            <div class="table-responsive"><table class="table align-middle mb-0" data-transfers-table><thead><tr><th>Référence</th><th>Produit</th><th>Origine</th><th>Destination</th><th>Quantité</th><th>Statut</th></tr></thead><tbody><tr><td colspan="6" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
+            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span>Transferts de stock</span></h2><p class="text-muted mb-0">Historique des mouvements entre emplacements.</p></div><input class="form-control form-control-sm table-search" type="search" placeholder="Rechercher un transfert" data-client-search="#transfersTable" aria-label="Rechercher un transfert"></div>
+            <div class="table-responsive"><table class="table align-middle mb-0" id="transfersTable" data-transfers-table><thead><tr><th>Référence</th><th>Produit</th><th>Origine</th><th>Destination</th><th>Quantité</th><th>Statut</th></tr></thead><tbody><tr><td colspan="6" class="text-muted text-center py-4">Chargement...</td></tr></tbody></table></div>
           </section>
           <section class="panel mt-3">
             <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-shop-window" aria-hidden="true"></i><span>Ajouter un emplacement</span></h2><p class="text-muted mb-0">Créer une boutique, un entrepôt ou une zone de stockage.</p></div></div>

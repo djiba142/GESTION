@@ -16,6 +16,11 @@ class InventoryLocation(models.Model):
     location_type = models.CharField(max_length=40, choices=LOCATION_TYPES, default='warehouse')
     address = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
+    authorized_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='authorized_inventory_locations',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

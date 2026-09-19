@@ -1,12 +1,20 @@
 """Django settings for the NEXORA backend."""
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-nexora-dev-key-change-me'
-DEBUG = True
-ALLOWED_HOSTS = ['*']
+
+def _get_bool(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-nexora-dev-key-change-me')
+DEBUG = _get_bool(os.getenv('DJANGO_DEBUG'), True)
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if os.getenv('DJANGO_ALLOWED_HOSTS') else ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -16,6 +24,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'drf_spectacular',
     'corsheaders',
     'core',
     'users',
@@ -62,20 +71,30 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'nexora_backend.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'db_gestion',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
-        'OPTIONS': {
-            'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite').lower()
+
+if DB_ENGINE == 'mysql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.getenv('DB_NAME', 'db_gestion'),
+            'USER': os.getenv('DB_USER', 'root'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('DB_PORT', '3306'),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -97,6 +116,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'users.User'
 
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
@@ -104,9 +124,17 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_PAGINATION_CLASS': 'core.pagination.VersionedApiPagination',
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'NEXORA API',
+    'DESCRIPTION': 'API de gestion commerciale, stocks, achats et ventes.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 ROLE_PERMISSIONS = {
@@ -120,15 +148,29 @@ ROLE_PERMISSIONS = {
     'viewer': {'products'},
 }
 
-CSRF_TRUSTED_ORIGINS = [
+def _get_cors_origins(defaults):
+    custom = os.getenv('CORS_ALLOWED_ORIGINS')
+    if custom:
+        return [origin.strip() for origin in custom.split(',') if origin.strip()]
+    return defaults
+
+
+CSRF_TRUSTED_ORIGINS = _get_cors_origins([
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:5500',
     'http://127.0.0.1:5500',
-]
+])
 
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = _get_cors_origins([
     'http://localhost:5500',
     'http://127.0.0.1:5500',
-]
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+])
 CORS_ALLOW_CREDENTIALS = True
+
+INVOICE_VERIFICATION_BASE_URL = os.getenv(
+    'INVOICE_VERIFICATION_BASE_URL',
+    'http://127.0.0.1:5500/html/billing/verify.html?token=',
+)

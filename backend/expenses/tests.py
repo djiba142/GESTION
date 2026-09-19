@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from users.models import User
@@ -48,3 +49,21 @@ class ExpenseApiTests(TestCase):
         response = self.client.get('/api/expenses/')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(any(item['title'] == 'Entretien véhicule' for item in response.data))
+
+    def test_expense_justification_attachment_upload(self):
+        expense = Expense.objects.create(
+            category=self.category,
+            title='Dépense avec justificatif',
+            amount='25000.00',
+            created_by=self.user,
+        )
+        attachment = SimpleUploadedFile('facture.txt', b'justificatif', content_type='text/plain')
+
+        response = self.client.post(
+            f'/api/v1/expenses/{expense.id}/attachments/',
+            {'file': attachment},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['original_name'], 'facture.txt')

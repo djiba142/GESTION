@@ -155,12 +155,33 @@
                 <p class="text-muted mb-0">Événements et messages transmis par le backend.</p>
               </div>
             </div>
-            
+            <div class="heading-actions">
+              <button class="btn btn-outline-primary btn-sm" type="button" data-notification-refresh><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Actualiser</button>
+              <button class="btn btn-success btn-sm" type="button" data-notification-export><i class="bi bi-download" aria-hidden="true"></i> Export CSV</button>
+            </div>
           </div>
 
           <section class="panel">
-            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span>Modèles d’alertes</span></h2><p class="text-muted mb-0">Patterns de notifications utilisés pour les workflows opérationnels.</p></div></div>
-            <div data-notifications-list><div class="text-muted">Chargement des notifications...</div></div>
+            <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span>Historique détaillé</span></h2><p class="text-muted mb-0">Suivi des envois, des rappels et des événements de paiement.</p></div><input class="form-control form-control-sm table-search" type="search" placeholder="Rechercher une notification" data-client-search="#notificationsList" aria-label="Rechercher une notification"></div>
+            <div class="table-responsive mt-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Événement</th>
+                    <th>Client</th>
+                    <th>Téléphone</th>
+                    <th>Canal</th>
+                    <th>Statut</th>
+                    <th>Créer</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="notificationsList" data-notifications-list>
+                  <tr><td colspan="8" class="text-muted">Chargement des notifications...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </section>
           <section class="panel mt-3">
             <div class="panel-header"><div><h2 class="h5 mb-1 section-title"><i class="bi bi-bell-plus" aria-hidden="true"></i><span>Créer une notification</span></h2><p class="text-muted mb-0">Préparer un message opérationnel à envoyer.</p></div></div>
@@ -194,27 +215,74 @@
     (function () {
       var container = document.querySelector("[data-notifications-list]");
       if (!container || !window.NexoraAPI) return;
-      window.NexoraAPI.getNotifications().then(function (notifications) {
-        container.innerHTML = notifications.length ? notifications.map(function (notification) {
-          var type = notification.status === "failed" ? "danger" : (notification.is_read ? "light" : "primary");
-          return '<div class="alert alert-' + type + ' d-flex justify-content-between align-items-start gap-3" role="status"><span><strong>' + (notification.event_type || "Notification") + ':</strong> ' + (notification.message || "-") + '<small class="d-block text-muted mt-1">' + new Date(notification.created_at).toLocaleString("fr-FR") + '</small></span><button class="btn btn-sm btn-outline-primary" type="button" data-dispatch-id="' + notification.id + '">Envoyer</button></div>';
-        }).join("") : '<div class="text-muted">Aucune notification.</div>';
+
+      function renderNotifications(notifications) {
+        if (!notifications || !notifications.length) {
+          container.innerHTML = '<tr><td colspan="8" class="text-muted">Aucune notification.</td></tr>';
+          return;
+        }
+
+        container.innerHTML = notifications.map(function (notification) {
+          var statusClass = notification.status === 'sent' ? 'success' : (notification.status === 'failed' ? 'danger' : 'warning');
+          var customerName = notification.customer_name || '-';
+          var phone = notification.customer_phone || notification.recipient_phone || '-';
+          var createdAt = notification.created_at ? new Date(notification.created_at).toLocaleString('fr-FR') : '-';
+          return '<tr>'
+            + '<td>#' + notification.id + '</td>'
+            + '<td><strong>' + (notification.event_type || 'Notification') + '</strong><div class="small text-muted">' + (notification.message || '-') + '</div></td>'
+            + '<td>' + customerName + '</td>'
+            + '<td>' + phone + '</td>'
+            + '<td>' + (notification.channel || '-') + '</td>'
+            + '<td><span class="badge text-bg-' + statusClass + '">' + (notification.status || 'pending') + '</span></td>'
+            + '<td>' + createdAt + '</td>'
+            + '<td><button class="btn btn-sm btn-outline-primary" type="button" data-dispatch-id="' + notification.id + '">Envoyer</button></td>'
+            + '</tr>';
+        }).join('');
+
         container.querySelectorAll("[data-dispatch-id]").forEach(function (button) {
           button.addEventListener("click", function () {
+            var id = button.getAttribute("data-dispatch-id");
             button.disabled = true;
-            window.NexoraAPI.dispatchNotification(button.getAttribute("data-dispatch-id")).then(function () {
-              button.textContent = "Envoyée";
-              button.classList.remove("btn-outline-primary");
-              button.classList.add("btn-success");
+            button.textContent = '...';
+            window.NexoraAPI.dispatchNotification(id).then(function () {
+              button.textContent = 'Envoyée';
+              button.classList.remove('btn-outline-primary');
+              button.classList.add('btn-success');
             }).catch(function (error) {
               button.disabled = false;
               button.textContent = error.message;
             });
           });
         });
-      }).catch(function (error) {
-        container.innerHTML = '<div class="alert alert-danger">' + error.message + '</div>';
+      }
+
+      function loadNotifications() {
+        window.NexoraAPI.getNotificationHistory().then(function (payload) {
+          var notifications = Array.isArray(payload) ? payload : (payload.results || []);
+          renderNotifications(notifications);
+        }).catch(function (error) {
+          container.innerHTML = '<tr><td colspan="8" class="text-danger">' + error.message + '</td></tr>';
+        });
+      }
+
+      document.querySelector("[data-notification-refresh]").addEventListener("click", loadNotifications);
+      document.querySelector("[data-notification-export]").addEventListener("click", function () {
+        window.NexoraAPI.exportNotificationsCsv().then(function (response) {
+          if (!response.ok) throw new Error('Impossible d’exporter les notifications.');
+          return response.blob();
+        }).then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = 'notifications.csv';
+          link.click();
+          URL.revokeObjectURL(url);
+        }).catch(function (error) {
+          console.error(error);
+        });
       });
+
+      loadNotifications();
       document.querySelector("[data-notification-form]").addEventListener("submit", function (event) {
         event.preventDefault();
         var form = event.currentTarget;
@@ -232,6 +300,7 @@
           message.textContent = "Notification créée.";
           message.classList.remove("d-none");
           form.reset();
+          loadNotifications();
         }).catch(function (error) {
           message.className = "alert alert-danger";
           message.textContent = error.message;

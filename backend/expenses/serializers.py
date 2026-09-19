@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Expense, ExpenseCategory
+from .models import Expense, ExpenseAttachment, ExpenseCategory
 
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
@@ -28,3 +28,10 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
     def get_created_by_name(self, obj):
         return obj.created_by.display_name if obj.created_by else None
+
+
+class ExpenseAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExpenseAttachment
+        fields = ['id', 'expense', 'file', 'original_name', 'uploaded_by', 'uploaded_at']
+        read_only_fields = ['id', 'expense', 'original_name', 'uploaded_by', 'uploaded_at']

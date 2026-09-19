@@ -57,6 +57,191 @@
     return "light";
   }
 
+  function setTextContent(selector, value) {
+    var node = document.querySelector(selector);
+    if (node) {
+      node.textContent = value;
+    }
+  }
+
+  function debounce(callback, delay) {
+    var timer = null;
+    return function () {
+      var args = arguments;
+      clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        callback.apply(null, args);
+      }, delay || 250);
+    };
+  }
+
+  function escapeHtml(value) {
+    return String(value === null || value === undefined ? "" : value).replace(/[&<>"']/g, function (character) {
+      return {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[character];
+    });
+  }
+
+  function showTableState(table, mode, message) {
+    var tbody = table && table.querySelector("tbody");
+    if (!tbody) return;
+
+    var colspan = table.querySelectorAll("thead th").length || 1;
+    var className = mode === "error" ? "text-danger" : mode === "success" ? "text-success" : "text-muted";
+    tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="' + className + ' text-center py-4">' + escapeHtml(message) + '</td></tr>';
+  }
+
+  function bindClientFilter(searchInput, table, filterCallback) {
+    if (!searchInput || !table) return;
+
+    var field = searchInput;
+    var onInput = debounce(function () {
+      var query = field.value.trim().toLowerCase();
+      var rows = table.querySelectorAll("tbody tr");
+
+      Array.prototype.forEach.call(rows, function (row) {
+        if (!row.dataset.searchText) {
+          row.dataset.searchText = row.textContent.toLowerCase();
+        }
+
+        var matches = query === "" || row.dataset.searchText.indexOf(query) !== -1;
+        row.hidden = !matches;
+      });
+
+      if (typeof filterCallback === "function") {
+        filterCallback(query);
+      }
+    }, 150);
+
+    field.addEventListener("input", onInput);
+  }
+
+  function bindClientListFilter(searchInput, container) {
+    if (!searchInput || !container) return;
+
+    searchInput.addEventListener("input", debounce(function () {
+      var query = searchInput.value.trim().toLowerCase();
+      Array.prototype.forEach.call(container.children, function (item) {
+        item.hidden = query !== "" && item.textContent.toLowerCase().indexOf(query) === -1;
+      });
+    }, 150));
+  }
+
+  function loadApiTable(table, requestFn, options) {
+    if (!table || typeof requestFn !== "function") return;
+
+    var tbody = table.querySelector("tbody");
+    var searchInput = options && options.searchInput ? document.querySelector(options.searchInput) : null;
+    var emptyMessage = options && options.emptyMessage ? options.emptyMessage : "Aucune donnée disponible.";
+    var loadingMessage = options && options.loadingMessage ? options.loadingMessage : "Chargement...";
+    var errorMessage = options && options.errorMessage ? options.errorMessage : "Une erreur est survenue lors du chargement des données.";
+    var renderItems = options && typeof options.renderItems === "function" ? options.renderItems : function (items) {
+      return items.map(function (item) {
+        return '<tr><td>' + escapeHtml(JSON.stringify(item)) + '</td></tr>';
+      }).join("");
+    };
+
+    function load(query) {
+      if (!tbody) return;
+
+      showTableState(table, "info", loadingMessage);
+
+      Promise.resolve(requestFn(query)).then(function (items) {
+        var data = Array.isArray(items) ? items : (items && Array.isArray(items.results) ? items.results : []);
+
+        if (!data.length) {
+          showTableState(table, "info", emptyMessage);
+          return;
+        }
+
+        tbody.innerHTML = renderItems(data);
+      }).catch(function (error) {
+        showTableState(table, "error", (error && error.message) || errorMessage);
+      });
+    }
+
+    if (searchInput) {
+      bindClientFilter(searchInput, table, function () {
+        });
+
+      searchInput.addEventListener("input", debounce(function () {
+        load(searchInput.value.trim());
+      }, 250));
+    }
+
+    load();
+    return { load: load };
+  }
+
+  function loadApiCollection(target, requestFn, options) {
+    if (!target || typeof requestFn !== "function") return;
+
+    var searchInput = options && options.searchInput ? document.querySelector(options.searchInput) : null;
+    var loadingMessage = options && options.loadingMessage ? options.loadingMessage : "Chargement...";
+    var emptyMessage = options && options.emptyMessage ? options.emptyMessage : "Aucune donnée disponible.";
+    var errorMessage = options && options.errorMessage ? options.errorMessage : "Impossible de charger les données.";
+    var renderItems = options && typeof options.renderItems === "function" ? options.renderItems : function () { return ""; };
+
+    function setState(message, className) {
+      target.innerHTML = '<div class="' + (className || "text-muted") + ' py-3">' + escapeHtml(message) + '</div>';
+    }
+
+    function load(query) {
+      setState(loadingMessage);
+      Promise.resolve(requestFn(query || "")).then(function (payload) {
+        var items = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.results) ? payload.results : []);
+        target.innerHTML = items.length ? renderItems(items) : '<div class="text-muted py-3">' + escapeHtml(emptyMessage) + '</div>';
+      }).catch(function (error) {
+        setState((error && error.message) || errorMessage, "text-danger");
+      });
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener("input", debounce(function () {
+        load(searchInput.value.trim());
+      }, 250));
+    }
+
+    load();
+    return { load: load };
+  }
+
+  window.NexoraUI = {
+    escapeHtml: escapeHtml,
+    bindClientFilter: bindClientFilter,
+    bindClientListFilter: bindClientListFilter,
+    showTableState: showTableState,
+    loadApiTable: loadApiTable,
+    loadApiCollection: loadApiCollection,
+    notify: function (selector, type, message) {
+      var node = document.querySelector(selector);
+      if (!node) return;
+
+      node.className = "alert alert-" + (type === "error" ? "danger" : type === "success" ? "success" : "info") + " mt-3";
+      node.textContent = message;
+      node.hidden = !message;
+    }
+  };
+
+  function bindLogoutButton(selector) {
+    var button = document.querySelector(selector);
+    if (!button || !window.NexoraAPI) {
+      return;
+    }
+
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      window.NexoraAPI.logout().catch(function () {}).finally(function () {
+        window.location.href = "../auth/login.html";
+      });
+    });
+  }
+
   onReady(function () {
     var body = document.body;
     var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
@@ -145,6 +330,47 @@
     initTableSearch();
     initThemeToggle();
 
+    function initDynamicTableBindings() {
+      document.querySelectorAll("[data-api-load]").forEach(function (table) {
+        var endpoint = table.getAttribute("data-api-load");
+        var searchSelector = table.getAttribute("data-search-input");
+        if (!endpoint || !window.NexoraAPI) {
+          return;
+        }
+
+        loadApiTable(table, function (query) {
+          return window.NexoraAPI.get(endpoint + (query ? "?search=" + encodeURIComponent(query) : ""));
+        }, {
+          searchInput: searchSelector,
+          loadingMessage: table.getAttribute("data-loading-text") || "Chargement des données...",
+          emptyMessage: table.getAttribute("data-empty-text") || "Aucune donnée disponible.",
+          errorMessage: table.getAttribute("data-error-text") || "Impossible de charger les données.",
+          renderItems: function (items) {
+            var renderer = table.getAttribute("data-row-renderer");
+            if (renderer && window[renderer]) {
+              return window[renderer](items);
+            }
+
+            return items.map(function (item) {
+              return '<tr><td colspan="' + (table.querySelectorAll("thead th").length || 1) + '" class="text-muted">' + escapeHtml(JSON.stringify(item)) + '</td></tr>';
+            }).join("");
+          }
+        });
+      });
+
+      document.querySelectorAll("[data-client-search]").forEach(function (input) {
+        var target = document.querySelector(input.getAttribute("data-client-search"));
+        if (!target) return;
+        if (target.matches("table")) {
+          bindClientFilter(input, target);
+        } else {
+          bindClientListFilter(input, target);
+        }
+      });
+    }
+
+    initDynamicTableBindings();
+
     function renderUserProfile(user) {
       var fallbackName = [user.first_name, user.last_name].filter(Boolean).join(" ");
       var profile = {
@@ -166,6 +392,42 @@
       Array.prototype.forEach.call(profileAvatarEls, function (img) { img.src = profile.avatar; img.alt = profile.name; });
       initLanguageSelector(user.preferred_language || "fr");
       applyRoleNavigation(user.role);
+    }
+
+    function bindShellLogoutLinks() {
+      if (!window.NexoraAPI) return;
+      document.querySelectorAll(".dropdown-menu a").forEach(function (link) {
+        var label = link.textContent.trim().toLowerCase();
+        if (label !== "sign out" && label !== "déconnexion") return;
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          window.NexoraAPI.logout().catch(function () {}).finally(function () {
+            window.location.href = "../auth/login.html";
+          });
+        });
+      });
+    }
+
+    function buildNavigationMarkup(role) {
+      var currentPage = window.location.pathname;
+      var links = [
+        ["../dashboard/index.html", "speedometer2", "Tableau de bord"],
+        ["../catalog/products.html", "box-seam", "Produits"],
+        ["../sales/checkout.html", "cart-plus", "Ventes"],
+        ["../reports/index.html", "bar-chart-line", "Rapports"],
+        ["../inventory/index.html", "boxes", "Stocks"],
+        ["../suppliers/index.html", "truck", "Fournisseurs"],
+        ["../users/index.html", "people", "Clients"],
+        ["../users/index.html", "person-gear", "Utilisateurs", "admin"],
+        ["../finance/expenses.html", "cash-stack", "Dépenses", "admin"]
+      ];
+
+      return links.filter(function (link) {
+        return !link[3] || role === link[3] || role === "admin";
+      }).map(function (link) {
+        var active = currentPage.indexOf(link[0].replace("..", "")) !== -1;
+        return '<a class="nav-link' + (active ? ' active' : '') + '" href="' + link[0] + '"' + (active ? ' aria-current="page"' : '') + '><span class="nav-icon"><i class="bi bi-' + link[1] + '" aria-hidden="true"></i></span><span class="nav-text">' + link[2] + '</span></a>';
+      }).join("");
     }
 
     function initLanguageSelector(language) {
@@ -198,25 +460,7 @@
       if (brandTitle) brandTitle.textContent = "NEXORA";
       if (brandSubtitle) brandSubtitle.textContent = "Gestion commerciale";
 
-      var currentPage = window.location.pathname;
-      var links = [
-        ["../dashboard/index.html", "speedometer2", "Tableau de bord"],
-        ["../catalog/products.html", "box-seam", "Produits"],
-        ["../sales/checkout.html", "cart-plus", "Ventes"],
-        ["../reports/index.html", "bar-chart-line", "Rapports"],
-        ["../inventory/index.html", "boxes", "Stocks"],
-        ["../suppliers/index.html", "truck", "Fournisseurs"],
-        ["../users/index.html", "people", "Clients"],
-        ["../users/index.html", "person-gear", "Utilisateurs", "admin"],
-        ["../finance/expenses.html", "cash-stack", "Dépenses", "admin"]
-      ];
-
-      navigation.innerHTML = links.filter(function (link) {
-        return !link[3] || role === link[3] || role === "admin";
-      }).map(function (link) {
-        var active = currentPage.indexOf(link[0].replace("..", "")) !== -1;
-        return '<a class="nav-link' + (active ? ' active' : '') + '" href="' + link[0] + '"' + (active ? ' aria-current="page"' : '') + '><span class="nav-icon"><i class="bi bi-' + link[1] + '" aria-hidden="true"></i></span><span class="nav-text">' + link[2] + '</span></a>';
-      }).join("");
+      navigation.innerHTML = buildNavigationMarkup(role || "viewer");
     }
 
     // Use the API user when this page is connected to the Nexora backend.
@@ -361,62 +605,41 @@
 
     initGlobalSearch();
 
-    function initLogout() {
-      if (!window.NexoraAPI) return;
-      document.querySelectorAll(".dropdown-menu a").forEach(function (link) {
-        if (link.textContent.trim() !== "Déconnexion") return;
-        link.addEventListener("click", function (event) {
-          event.preventDefault();
-          window.NexoraAPI.logout().catch(function () {}).finally(function () {
-            window.location.href = "../auth/login.html";
+    bindShellLogoutLinks();
+
+    function renderNotificationsMenu(notifications) {
+      var menu = document.querySelector(".notification-menu");
+      if (!menu) return;
+
+      var unread = notifications.filter(function (notification) { return !notification.is_read; }).length;
+      var dot = document.querySelector(".notification-dot");
+      if (dot) dot.hidden = unread === 0;
+
+      var items = notifications.slice(0, 8).map(function (notification) {
+        return '<button class="dropdown-item text-start notification-entry" type="button" data-notification-id="' + notification.id + '"><span class="notification-title">' + (notification.message || notification.event_type || "Notification") + '</span><span class="notification-time">' + (notification.created_at ? new Date(notification.created_at).toLocaleString("fr-FR") : "-") + '</span></button>';
+      }).join("");
+
+      menu.innerHTML = '<div class="dropdown-header fw-bold text-body">Notifications (' + unread + ')</div>' + (items || '<div class="dropdown-item text-muted">Aucune notification</div>');
+
+      menu.querySelectorAll("[data-notification-id]").forEach(function (entry) {
+        entry.addEventListener("click", function () {
+          window.NexoraAPI.markNotificationRead(entry.getAttribute("data-notification-id")).then(function () {
+            entry.classList.add("text-muted");
+            if (dot) dot.hidden = true;
           });
         });
       });
     }
 
-    initLogout();
-
     function initNotifications() {
       var menu = document.querySelector(".notification-menu");
       if (!menu || !window.NexoraAPI) return;
-      window.NexoraAPI.getNotifications().then(function (notifications) {
-        var unread = notifications.filter(function (notification) { return !notification.is_read; }).length;
-        var dot = document.querySelector(".notification-dot");
-        if (dot) dot.hidden = unread === 0;
-        menu.innerHTML = '<div class="dropdown-header fw-bold text-body">Notifications (' + unread + ')</div>';
-        menu.innerHTML += notifications.slice(0, 8).map(function (notification) {
-          return '<button class="dropdown-item text-start notification-entry" type="button" data-notification-id="' + notification.id + '"><span class="notification-title">' + (notification.message || notification.event_type || "Notification") + '</span><span class="notification-time">' + (notification.created_at ? new Date(notification.created_at).toLocaleString("fr-FR") : "-") + '</span></button>';
-        }).join("") || '<div class="dropdown-item text-muted">Aucune notification</div>';
-        menu.querySelectorAll("[data-notification-id]").forEach(function (entry) {
-          entry.addEventListener("click", function () {
-            window.NexoraAPI.markNotificationRead(entry.getAttribute("data-notification-id")).then(function () {
-              entry.classList.add("text-muted");
-              if (dot) dot.hidden = true;
-            });
-          });
-        });
-      }).catch(function () {
+      window.NexoraAPI.getNotifications().then(renderNotificationsMenu).catch(function () {
         // The menu keeps its static fallback when no authenticated session exists.
       });
     }
 
     initNotifications();
-
-    function initLogout() {
-      if (!window.NexoraAPI) return;
-      document.querySelectorAll(".dropdown-menu a").forEach(function (link) {
-        var label = link.textContent.trim().toLowerCase();
-        if (label !== "sign out" && label !== "déconnexion") return;
-        link.addEventListener("click", function (event) {
-          event.preventDefault();
-          window.NexoraAPI.logout().catch(function () {}).finally(function () {
-            window.location.href = "../auth/login.html";
-          });
-        });
-      });
-    }
-
-    initLogout();
 
     function initCashflowAndAudit() {
       if (!window.NexoraAPI || !document.querySelector("[data-cashflow-summary]")) return;
